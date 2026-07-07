@@ -1,0 +1,32 @@
+{
+  "name": "@flow/extension",
+  "displayName": "Flow",
+  "version": "0.0.1",
+  "description": "Flow Extension",
+  "author": "Antigravity",
+  "scripts": {
+    "dev": "plasmo dev",
+    "build": "plasmo build",
+    "package": "plasmo package"
+  },
+  "dependencies": {
+    "chrono-node": "^2.9.1",
+    "plasmo": "latest",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/chrome": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest"
+  },
+  "manifest": {
+    "host_permissions": [
+      "http://localhost/*",
+      "http://127.0.0.1/*"
+    ]
+  }
+}

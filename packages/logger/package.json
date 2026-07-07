@@ -1,0 +1,9 @@
+{
+  "name": "@flow/logger",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.ts",
+  "dependencies": {
+    "pino": "^8.19.0"
+  }
+}

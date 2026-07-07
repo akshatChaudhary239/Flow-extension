@@ -1,0 +1,336 @@
+# ENGINEERING MASTER PROMPT — PROJECT "FLOW"
+### A Workflow Acceleration Platform (Chrome Extension + Backend)
+**Audience:** Antigravity (autonomous engineering execution agent)
+**Author role:** Principal Architect / CTO specification
+**Status:** Authoritative. This document is the single source of architectural truth. Do not deviate from it. Do not redesign. Do not invent alternative patterns. Where a decision is not specified, stop and ask rather than assume.
+
+---
+
+## 0. HOW TO USE THIS DOCUMENT
+
+You (Antigravity) are being handed a complete architectural blueprint for a product called **Flow**. Your job is to **implement** this blueprint, not to redesign it.
+
+Rules of engagement:
+
+1. **Phase-gated execution.** The project is divided into Phases (0–11). You implement **one phase at a time**, in order. At the end of every phase, you **stop, summarize what was built, list open questions, and wait for explicit user confirmation** before starting the next phase. You never batch multiple phases into one execution pass, even if it seems efficient.
+2. **Architecture is fixed at Day 0.** Even though features are built incrementally, the folder structure, module boundaries, database schema conventions, and communication contracts described here must be respected from the very first line of code, so that Phase 7's Notion module requires zero modification to Phase 1's Gmail module or to Core.
+3. **No silent scope expansion.** If a phase's spec doesn't mention a feature, you don't build it, even if it seems like an obvious addition.
+4. **No silent scope reduction.** If a phase's spec mentions a requirement, you don't skip it for convenience.
+5. **AI is a last resort.** Every feature must first be attempted with deterministic logic (regex, DOM parsing, structured heuristics, rule engines). AI/LLM calls are only introduced where explicitly authorized in Phase 9, or in the narrowly-scoped "minimal AI" carve-outs in Phase 1.
+6. **When uncertain, ask.** You do not guess at business logic, pricing, legal copy, or naming. You ask a clarifying question and pause.
+
+---
+
+## 1. PRODUCT PHILOSOPHY (NON-NEGOTIABLE DESIGN CONSTITUTION)
+
+Flow is **not** an AI assistant, a productivity app, an automation builder, or a shortcuts extension. Flow is invisible infrastructure that removes micro-friction from the tools people already use.
+
+Governing principles that must shape every UI and architectural decision:
+
+- **The user never leaves their current page.** No Flow "app" to visit. No dashboard-first mental model for day-to-day use (a dashboard may exist for settings/analytics, but it is never required for daily workflow).
+- **Contextual, one-click actions over configuration.** If a feature requires more than one click/keystroke to invoke in the common case, the design has failed.
+- **Silent by default, present when useful.** Flow injects UI only where the DOM context makes an action relevant. No global floating toolbars cluttering every page.
+- **Deterministic first, AI second.** Parsing an email for a date is a regex + NLP-date-library problem, not an LLM problem, until proven otherwise.
+- **Observe, don't presume (Phase 8+).** Behavioral learning suggests; it never silently automates.
+- **Performance is a feature.** Content scripts must be near-zero overhead on host pages. Any measurable input-lag on Gmail/LinkedIn/etc. is a regression.
+
+Every phase's UI work must be validated against this constitution before being marked complete.
+
+---
+
+## 2. TECH STACK (MANDATORY, NO SUBSTITUTIONS)
+
+| Layer | Technology | Notes |
+|---|---|---|
+| Extension frontend | React + TypeScript | Strict mode, no `any` |
+| Extension build framework | Plasmo | Manages MV3 build pipeline, content script injection, hot reload |
+| Styling | TailwindCSS | Design tokens only, no ad-hoc hex values |
+| Extension manifest | Chrome Manifest V3 | Service worker, no persistent background page |
+| Backend framework | Next.js (App Router) | API routes = backend surface |
+| Backend runtime | Node.js | LTS version pinned in `.nvmrc` |
+| Database | Neon PostgreSQL (serverless Postgres) | Branching used for preview environments |
+| ORM | Prisma | Single source of schema truth |
+| Auth | Custom-built (no Clerk/Auth0/NextAuth) | Session + email verification + reset flows built in-house |
+| Object storage | Cloudflare R2 | Attachments, exported data, avatars |
+| Hosting/deploy | Vercel | Preview deployments per PR |
+| AI provider (Phase 9+ only) | Anthropic API (Claude) | Called server-side only, never from the extension directly |
+
+No substitutions, no "similar" libraries, no ORMs other than Prisma, no auth-as-a-service providers. If a task seems to require a deviation, stop and flag it instead of silently swapping technology.
+
+---
+
+## 3. ARCHITECTURAL LAWS
+
+These laws apply for the life of the project, across all 12 phases and beyond (Website #50 must be as cheap to add as Website #2).
+
+### 3.1 The Core/Module Boundary
+- **Core** (shared engine + shared UI + shared services) must contain **zero knowledge** of any specific website (no `if (hostname === 'gmail.com')` anywhere in Core).
+- Every website integration (Gmail, LinkedIn, Slack, Jira, Notion, Google Docs, Google Drive) is a **Module**: a self-contained package that plugs into Core through a defined **Adapter Interface** and nothing else.
+- Modules may depend on Core. Core must never depend on a Module. This is enforced by lint rule (`no-restricted-imports` from `core/*` into `modules/*`) and CI import-graph check.
+- Adding Module #N: create `modules/<name>/`, implement the `SiteAdapter` interface, register it in the module registry. Zero edits to `core/`, zero edits to other modules.
+
+### 3.2 Clean Architecture Layering (applies to both extension and backend)
+```
+Presentation  →  Application (use-cases)  →  Domain (entities, rules)  →  Infrastructure (DB, APIs, DOM)
+```
+- Dependencies point inward only. Domain layer has no imports from Infrastructure.
+- Dependency Inversion: Application layer defines interfaces (ports); Infrastructure implements them (adapters). E.g., `TaskRepository` interface lives in Application/Domain; `PrismaTaskRepository` implements it in Infrastructure.
+
+### 3.3 SOLID Enforcement
+- **S**: one reason to change per class/module (e.g., `EmailParser` parses; it does not also persist).
+- **O**: new site support is added by extension (new adapter), not modification of the engine's switch statements.
+- **L**: any `SiteAdapter` implementation must be substitutable without breaking the `ContextEngine`.
+- **I**: adapters implement narrow interfaces (`ContextDetectable`, `ActionProvider`, `NotesCapable`) rather than one giant interface modules must fully implement.
+- **D**: engines depend on interfaces (`IActionHandler`), never on concrete module classes.
+
+### 3.4 Feature-First Folder Philosophy
+Both the extension and backend are organized by **feature/domain**, not by technical type (i.e., no top-level `controllers/`, `views/`, `models/` split across the whole app). Each feature folder is internally layered (see 3.2).
+
+---
+
+## 4. MONOREPO & FOLDER STRUCTURE
+
+Flow ships as a **monorepo** (pnpm workspaces + Turborepo) so Core, each Module, the backend, and shared packages can be versioned and built together while remaining independently testable.
+
+```
+flow/
+├── apps/
+│   ├── extension/                 # Plasmo-based Chrome MV3 app
+│   │   ├── background/            # Service worker entry + lifecycle
+│   │   ├── popup/                 # Popup UI (Plasmo popup entry)
+│   │   ├── options/                # Full settings page
+│   │   ├── content-scripts/       # Per-module content script entrypoints
+│   │   ├── core/                  # ---- CORE (see 4.1) ----
+│   │   ├── modules/                # ---- MODULES (see 4.2) ----
+│   │   └── manifest.config.ts
+│   └── web/                       # Next.js backend + marketing/auth pages
+│       ├── app/                   # App Router: api/, (auth)/, (dashboard)/
+│       ├── server/                 # Application layer: use-cases, services
+│       ├── domain/                 # Entities, value objects, domain rules
+│       ├── infrastructure/         # Prisma repos, R2 client, email provider
+│       └── prisma/                 # schema.prisma, migrations/
+├── packages/
+│   ├── ui/                         # Shared design system (Tailwind + React)
+│   ├── config/                     # eslint, tsconfig, tailwind presets
+│   ├── types/                      # Shared TypeScript contracts (DTOs)
+│   └── logger/                     # Shared structured logging client
+├── turbo.json
+├── pnpm-workspace.yaml
+└── .github/workflows/              # CI/CD
+```
+
+### 4.1 Core (`apps/extension/core/`)
+```
+core/
+├── context-engine/       # Detects "what is the user looking at" per page
+├── action-engine/        # Executes registered actions (create task, etc.)
+├── analytics-engine/     # Local + remote event tracking, privacy-respecting
+├── communication/        # Typed message-passing bus (content ⇄ background ⇄ popup)
+├── state/                # Zustand-based cross-context state stores
+├── api-client/           # Typed fetch wrapper for backend API
+├── auth/                 # Session token storage, refresh logic
+├── logging/              # Structured logger, log levels, redaction rules
+├── error-handling/       # Global error boundary + reporting pipeline
+├── settings/             # User preference schema + sync
+├── module-registry/      # Registers/discovers SiteAdapters
+└── types/                # SiteAdapter, ContextEngine, ActionEngine contracts
+```
+
+### 4.2 Modules (`apps/extension/modules/`)
+```
+modules/
+├── gmail/
+│   ├── adapter.ts         # implements SiteAdapter
+│   ├── content-script/    # DOM injection specific to Gmail
+│   ├── parsers/           # Email body/date/entity parsing
+│   ├── actions/           # Gmail-specific action implementations
+│   └── ui/                # Gmail-specific injected components (built on packages/ui)
+├── linkedin/
+├── google-docs/
+├── google-drive/
+├── slack/
+├── jira/
+└── notion/
+```
+Each module folder is **structurally identical** — this uniformity is itself an architectural requirement, so that engineers (and Antigravity in later phases) can predict where code lives without re-learning conventions per module.
+
+---
+
+## 5. PHASE 0 — FOUNDATION (NO PRODUCT FEATURES)
+
+Phase 0 produces zero user-facing features. It produces the entire skeleton every later phase plugs into. Nothing in Phase 0 should need to change shape later — only grow.
+
+### 5.1 Project Setup
+- Initialize pnpm workspace monorepo with Turborepo pipeline (`build`, `dev`, `lint`, `test`, `typecheck`).
+- Root-level strict TypeScript config shared via `packages/config`.
+- ESLint + Prettier shared config, including the Core/Module import-boundary rule (3.1).
+- Husky pre-commit: lint-staged, typecheck, unit tests for changed packages.
+
+### 5.2 Design System & Theme (`packages/ui`)
+- Tailwind config with design tokens: color scale, spacing scale, radii, shadows, motion durations — no component may use raw hex/px values outside tokens.
+- Base primitives: Button, IconButton, Tooltip, Popover, Menu, Modal, Toast, Input, Badge, Spinner, ContextCard (the injected-into-page action card primitive every module reuses).
+- Light/dark theme support from Day 0, since injected UI must not visually clash with host pages that may be in dark mode.
+- Storybook (or equivalent) for isolated component development and visual regression testing.
+
+### 5.3 Database & Backend Foundation
+- Prisma schema in `apps/web/prisma/schema.prisma`, connected to Neon Postgres via pooled connection string.
+- Core tables to design in Phase 0 (fields illustrative, not exhaustive — finalize field-level detail during implementation, but table boundaries are fixed):
+  - `User` (id, email, hashedPassword, emailVerifiedAt, createdAt, updatedAt)
+  - `Session` (id, userId, tokenHash, expiresAt, userAgent, ipHash, createdAt)
+  - `EmailVerificationToken` (id, userId, tokenHash, expiresAt)
+  - `PasswordResetToken` (id, userId, tokenHash, expiresAt, usedAt)
+  - `Organization` (id, name, plan, createdAt) — created empty in Phase 0, populated starting Phase 10/11
+  - `OrganizationMembership` (id, orgId, userId, role)
+  - `UserSettings` (id, userId, jsonPreferences)
+  - `AuditEvent` (id, actorUserId, orgId, type, metadata, createdAt) — schema exists from Day 0 even though it is unused until Phase 11, so audit logging never requires a breaking migration later.
+- Migrations must be additive and reversible; never hand-edit the database outside Prisma migrations.
+
+### 5.4 Authentication (Custom-Built)
+Full spec, mandatory for Phase 0 completion:
+- **Registration:** email + password → Argon2id hash → row created with `emailVerifiedAt = null` → verification email sent (token stored hashed, 24h expiry).
+- **Email verification:** required before first login-gated action; unverified users can log in but see a persistent "verify your email" state.
+- **Login:** rate-limited (per-IP and per-account sliding window), generic error messages (no "email not found" vs "wrong password" distinction, to prevent enumeration), brute-force lockout after N failed attempts with exponential backoff.
+- **Session strategy:** opaque session tokens (not JWT) stored hashed in `Session` table, session ID delivered via httpOnly, Secure, SameSite=Lax cookie for web; extension uses a securely-stored token retrieved through a dedicated auth handshake endpoint (never store raw long-lived credentials in `chrome.storage` — store only the session token, encrypted at rest via the browser's storage encryption, with short-lived refresh).
+- **Remember me:** extends session/cookie lifetime; still revocable server-side by deleting the `Session` row (supports "log out of all devices").
+- **Password reset / forgot password:** token-based, single-use, time-boxed, invalidates all existing sessions on successful reset.
+- **Protected routes:** middleware-level guard on both Next.js routes and API routes; consistent 401/redirect behavior.
+- **Rate limiting & brute-force protection:** token-bucket or sliding-window limiter (implemented server-side, backed by Postgres or an in-memory store behind an interface so it can later move to Redis without touching call sites).
+
+### 5.5 Chrome Extension Infrastructure
+- **Manifest V3** with minimal permissions requested per module (host_permissions scoped to the domains that module's Phase actually ships — do not request Slack/Jira/Notion host permissions in Phase 0/1).
+- **Background service worker**: stateless-by-design (MV3 workers can be killed anytime); all persistent state lives in `chrome.storage` or the backend, never in worker memory alone.
+- **Content scripts**: one per module, injected only on that module's matched URLs, communicating with the background worker via the typed message bus — never directly calling the backend API from a content script.
+- **Popup architecture**: React app, reads from shared state store, shows cross-module summary (recent actions, quick settings) — not a dashboard replacement.
+- **Context Engine**: given a DOM + URL, determines "context objects" (e.g., `{type: 'email', sender, subject, bodyText}`); modules register detectors, Core orchestrates which detector runs based on URL match.
+- **Action Engine**: given a context object and a chosen action id, invokes the correct module's action handler, and reports success/failure through the same message bus to update UI and analytics.
+- **Analytics Engine**: fires structured, privacy-conscious events (no page content logged) to the backend `AuditEvent`/analytics tables; documents exactly what is and is not collected.
+- **Communication layer**: a single typed pub/sub message bus (content script ⇄ background ⇄ popup ⇄ options) with a versioned message schema (`packages/types`) — no ad-hoc `chrome.runtime.sendMessage` calls with untyped payloads anywhere in the codebase.
+
+### 5.6 Cross-Cutting Concerns (must exist before any feature work)
+- **Logging**: structured logger (level, module, event, redacted metadata), shared shape between extension and backend.
+- **Error handling**: global error boundary in each React root; background worker wraps all handlers in try/catch that reports to the error pipeline; backend has a single error-formatting middleware.
+- **Settings**: typed preference schema, synced via backend so settings follow the user across devices; local cache for offline-fast-read.
+- **State management**: Zustand for extension-side ephemeral/UI state; server state fetched via a thin typed API client with caching (SWR-style) — no Redux, no global mutable singletons outside the store.
+- **API layer**: REST endpoints under `apps/web/app/api/*`, versioned (`/api/v1/...`), input validated with Zod at the boundary, consistent error envelope `{ error: { code, message } }`.
+- **Security baseline**: CSP for extension pages, sanitization of any injected HTML (no `dangerouslySetInnerHTML` with unsanitized DOM content), secrets only in environment variables, R2 signed URLs for any file access, dependency vulnerability scanning in CI.
+- **Scalability baseline**: stateless API routes (horizontally scalable on Vercel by default), DB access pooled via Neon's pooler, module registry designed for lazy-loading (a module's content script/bundle should not load on pages it doesn't match, keeping per-page footprint minimal).
+- **Testing baseline**: unit test runner (Vitest) configured for all packages; a smoke E2E test (Playwright) that loads the unpacked extension and confirms the popup renders and background worker starts, established in Phase 0 so every later phase can extend it.
+- **CI/CD**: GitHub Actions pipeline — install → typecheck → lint → unit tests → build extension bundle + Next.js build → (later) Playwright E2E → Vercel preview deploy on PR, production deploy on merge to `main`. Extension packaging (zip for Chrome Web Store) as a separate manual-trigger workflow, not auto-published.
+
+**Phase 0 exit criteria:** empty-but-running extension (popup opens, no modules yet), empty-but-running backend (register/login/verify/reset all functional end-to-end), CI green, design system Storybook deployed. Antigravity must present this checklist as completed, then stop for confirmation.
+
+---
+
+## 6. PHASE 1 — GMAIL MODULE
+
+Scope: Gmail only. No other site.
+
+### 6.1 Context Detection
+- Detect "email open" context via Gmail's DOM (subject, sender, body text, thread id) using a resilient selector strategy (data-attribute based where Gmail exposes stable hooks; documented fallback selectors; a self-test that flags selector breakage rather than failing silently).
+- Detect "compose" context separately from "reading" context — different actions are relevant in each.
+
+### 6.2 Deterministic Parsing (no AI)
+- Date/time extraction via a dedicated date-parsing library (e.g., chrono-style parsing) to detect candidate deadlines/meeting times in email body.
+- Entity extraction (names, links, attachment references) via regex/DOM inspection of Gmail's rendered structure — not by asking an LLM to read the email.
+- "Minimal AI" carve-out (explicitly scoped, not to be expanded without a new phase): only for genuinely ambiguous natural-language deadline phrasing that deterministic parsing fails on (e.g., "let's circle back after the offsite"), and only server-side, never client-side, with the raw email body never persisted beyond the request lifecycle.
+
+### 6.3 Actions (all surfaced as one-click `ContextCard` buttons)
+- **Create Task**: from the parsed context object → backend `Task` entity, immediately visible in the popup.
+- **Reminder**: schedules a notification (backed by a server-side scheduled job, not `setTimeout` in the worker, since MV3 workers are ephemeral).
+- **Bookmark**: saves a reference (thread id + subject + link) to a `Bookmark` entity for later retrieval, without duplicating email content.
+- **Save Notes**: quick free-text note attached to the thread.
+- **Save Attachment**: uploads the attachment to Cloudflare R2 via a signed URL flow, storing only the reference + metadata in Postgres.
+- **Quick Actions menu**: single injected affordance exposing the above without cluttering Gmail's UI.
+
+### 6.4 Data Model Additions (Phase 1)
+- `Task`, `Reminder`, `Bookmark`, `Note`, `Attachment` tables, all with a polymorphic `sourceRef` (module: "gmail", externalId: threadId) so the same tables are reused unmodified by every later module (LinkedIn, Slack, etc.) — this reuse is why Core's data model must be designed generically in Phase 0/1 rather than Gmail-specific.
+
+**Phase 1 exit criteria:** a user can open an email, and with one click create a task/reminder/bookmark/note/attachment-save, all visible in the popup and persisted in Postgres, with zero content-script overhead measurable on Gmail's own performance profiler beyond a documented budget (e.g., <5ms added script time). Stop for confirmation.
+
+---
+
+## 7. PHASE 2 — LINKEDIN MODULE
+
+- Reuses `Task`, `Note`, `Bookmark` entities from Phase 1 unmodified (adapter pattern proof-point #1).
+- Context detection for: profile view, message thread, connection request context.
+- Actions: save candidate/profile note, create follow-up task, bookmark profile, track connection status.
+- Recruiting-specific vs. general-networking-specific action sets, toggled by user role/settings rather than hardcoded.
+- No modification to `core/` or `modules/gmail/` permitted during this phase — CI import-graph check enforces this.
+
+## 8. PHASE 3 — GOOGLE DOCS MODULE
+
+- Context: text selection within a Doc.
+- Actions: create task from selection, bookmark a section (deep-link to selection if the host API allows, otherwise nearest heading), save selection as a knowledge note.
+- Establishes the "selection-based" context detector pattern in Core (distinct from Gmail's "whole object" pattern), which Google Drive/Notion/Slack later reuse where relevant.
+
+## 9. PHASE 4 — GOOGLE DRIVE MODULE
+
+- Context: file/folder listing view.
+- Actions: quick task from a file, folder-level "watch for changes" bookmark, smart suggestions surfaced from usage patterns (rule-based in this phase, not ML).
+
+## 10. PHASE 5 — SLACK MODULE
+
+- Context: message/thread view.
+- Actions: create task from message, bookmark message, follow-up reminder tied to a thread.
+- First module to require a near-real-time context refresh (Slack's SPA re-renders aggressively) — establishes the MutationObserver-based re-detection pattern in Core for reuse by Notion/Jira.
+
+## 11. PHASE 6 — JIRA MODULE
+
+- Context: issue view, backlog view.
+- Actions: quick issue creation from any parsed context (including from a Gmail task carried over via the shared `Task` entity — first cross-module linkage), task/issue synchronization status.
+
+## 12. PHASE 7 — NOTION MODULE
+
+- Context: page/database view.
+- Actions: knowledge capture actions, database row quick-add, context-aware suggestions based on page structure.
+- Explicit checkpoint: confirm zero changes were required in `core/` or any of the six prior modules to ship this module. If changes were required, that is an architecture defect to be logged and reviewed before continuing — not silently patched.
+
+## 13. PHASE 8 — MEMORY ENGINE
+
+- Purely observational: logs repeated action sequences (e.g., "user creates a task from every email from this sender") into a `BehaviorPattern` table.
+- Detection is rule/statistics-based (frequency + recency thresholds), not ML in this phase.
+- Surfaces suggestions ("Want to automate this?") via a non-intrusive prompt; **never** auto-enables automation. User must explicitly opt in per suggestion.
+- All learning data stays scoped per-user; no cross-user pattern sharing without explicit Phase 10 team-features consent flows.
+
+## 14. PHASE 9 — AI LAYER
+
+- AI calls are server-side only, via the backend API, using the Anthropic API.
+- Scoped strictly to: summarization, deadline extraction fallback (from Phase 1's carve-out, now formalized), action-item extraction, "explain this email/thread" on demand.
+- Every AI-touching endpoint logs what was sent (with content minimization — no full email bodies persisted longer than necessary) and is behind an explicit user setting (default: deterministic-only, AI features are opt-in).
+- Establish token/cost budgeting and caching (don't re-summarize an unchanged thread).
+
+## 15. PHASE 10 — TEAM FEATURES
+
+- Activates `Organization`/`OrganizationMembership` tables (present since Phase 0, unused until now).
+- Shared workflows, shared notes, shared analytics dashboards, role-based permission checks reusing the Phase 0 protected-route middleware.
+
+## 16. PHASE 11 — ENTERPRISE
+
+- SSO (SAML/OIDC) added as an additional auth strategy alongside custom auth, not a replacement.
+- `AuditEvent` table (present since Phase 0) becomes fully populated and queryable.
+- Org-level security policies, compliance exports, admin console.
+
+---
+
+## 17. CROSS-PHASE ENGINEERING STANDARDS
+
+- **Code quality**: no `any`, no unchecked `!` non-null assertions, exhaustive switch statements on discriminated unions, 100% of public functions documented with TSDoc.
+- **Testing strategy**: unit tests for parsers/engines (deterministic logic is highly testable — no excuse to skip), integration tests for API routes against a test Neon branch, Playwright E2E per module covering "inject → detect → act → persist → visible in popup."
+- **Performance**: budget enforced per content script (documented ms budget, checked via Chrome DevTools performance trace in CI where feasible, manually otherwise); lazy-load module bundles so only the active site's module code executes.
+- **Security**: least-privilege host permissions per module, CSP, input validation at every API boundary (Zod), secrets management via environment variables never committed, dependency scanning (`pnpm audit` / Dependabot) in CI.
+- **Documentation**: every module ships a `README.md` describing its adapter surface, selectors used (with a "last verified" date, since host sites change DOM), and its action list.
+- **Scalability**: Core's module registry and communication bus must be O(1) to extend — registering module #8 must not require touching modules #1–7's code or types.
+
+---
+
+## 18. WHAT TO DO AT THE END OF EVERY PHASE
+
+1. Summarize what was implemented against this document's exit criteria for that phase.
+2. Run the full test suite and report results.
+3. Explicitly state: "Phase N complete. No changes were required to Core or prior modules" (or flag if changes were required, and why).
+4. List any open questions or ambiguities encountered.
+5. **Stop and wait for explicit user confirmation before starting the next phase.**
+
+---
+
+*End of Engineering Master Prompt. This document is the contract. Build against it exactly.*
