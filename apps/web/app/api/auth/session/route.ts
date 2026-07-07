@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../infrastructure/prisma";
-import { hashToken } from "../../../../../domain/auth";
+import { prisma } from "../../../../infrastructure/prisma";
+import { hashToken } from "../../../../domain/auth";
 
 export async function GET(req: Request) {
   try {

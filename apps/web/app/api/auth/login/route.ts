@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { AuthService } from "../../../../../server/auth.service";
-import { loginSchema } from "../../../../../domain/schemas";
+import { AuthService } from "../../../../server/auth.service";
+import { loginSchema } from "../../../../domain/schemas";
 import { z } from "zod";
 import { cookies } from "next/headers";
 import crypto from "crypto";
@@ -31,7 +31,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, token: session.token });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: error.errors[0].message } }, { status: 400 });
+      return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: (error as any).errors[0].message } }, { status: 400 });
     }
     
     // Using generic error for invalid credentials

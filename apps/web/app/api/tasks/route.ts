@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "../../../infrastructure/prisma";
+import { actionRouter } from "../../../server/action-router.service";
+import { ProviderCapability } from "../../../domain/providers/types";
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     
-    // For Phase 1 testing, we'll associate with the first user in the DB,
-    // or create a dummy user if none exists.
+    // For testing, we'll associate with the first user in the DB
     let user = await prisma.user.findFirst();
     if (!user) {
       user = await prisma.user.create({
@@ -14,18 +15,22 @@ export async function POST(req: Request) {
       });
     }
 
-    const task = await prisma.task.create({
-      data: {
-        userId: user.id,
-        title: body.title,
-        description: body.description,
-        dueDate: body.dueDate ? new Date(body.dueDate) : null,
-        sourceUrl: body.sourceUrl,
-      }
-    });
+    const result = await actionRouter.routeAction(
+      user.id,
+      ProviderCapability.CREATE_TASK,
+      body
+    );
 
-    return NextResponse.json({ success: true, task });
+    if (!result.success) {
+      return NextResponse.json({ error: result.error, metadata: result.metadata }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, metadata: result.metadata });
   } catch (error) {
-    return NextResponse.json({ error: "Failed to create task" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to route task" }, { status: 500 });
   }
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, { status: 204 });
 }

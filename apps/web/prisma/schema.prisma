@@ -20,11 +20,12 @@ model User {
   passwordResets       PasswordResetToken[]
   organizationMembers  OrganizationMembership[]
   settings             UserSettings?
-  tasks                Task[]
-  reminders            Reminder[]
-  bookmarks            Bookmark[]
-  notes                Note[]
-  attachments          Attachment[]
+  flowLocalTasks       FlowLocalTask[]
+  flowLocalReminders   FlowLocalReminder[]
+  flowLocalBookmarks   FlowLocalBookmark[]
+  flowLocalNotes       FlowLocalNote[]
+  flowLocalAttachments FlowLocalAttachment[]
+  actionMetadata       ActionMetadata[]
   connectionStatuses   ConnectionStatus[]
   gmailConnections     GmailConnection[]
   linkedInConnections  LinkedInConnection[]
@@ -32,6 +33,8 @@ model User {
   googleDriveConnections GoogleDriveConnection[]
   slackConnections     SlackConnection[]
   jiraConnections      JiraConnection[]
+  notionConnections    NotionConnection[]
+  googleTasksConnections GoogleTasksConnection[]
 }
 
 model Session {
@@ -103,13 +106,31 @@ model AuditEvent {
   createdAt   DateTime @default(now())
 }
 
-// Module specific generic tables
-model Task {
+// Metadata table for the Action Router
+model ActionMetadata {
+  id               String   @id @default(uuid())
+  userId           String
+  provider         String   // e.g., "notion", "google_tasks", "flow_local"
+  providerObjectId String?  // ID returned by the provider
+  actionType       String   // e.g., "CREATE_TASK", "CREATE_NOTE"
+  sourceUrl        String?
+  sourceRef        String?  // e.g., "gmail:thread123"
+  sourcePlatform   String?  // e.g., "gmail", "slack", "jira"
+  syncStatus       String   @default("synced") // e.g., "synced", "pending", "failed"
+  errorMessage     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Flow Local Fallback tables
+model FlowLocalTask {
   id          String   @id @default(uuid())
   userId      String
   title       String
   description String?
-  sourceRef   String?  // e.g. "gmail:thread123"
+  sourceRef   String?
   sourceUrl   String?
   dueDate     DateTime?
   createdAt   DateTime @default(now())
@@ -118,7 +139,7 @@ model Task {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Reminder {
+model FlowLocalReminder {
   id          String   @id @default(uuid())
   userId      String
   title       String?
@@ -130,7 +151,7 @@ model Reminder {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Bookmark {
+model FlowLocalBookmark {
   id          String   @id @default(uuid())
   userId      String
   title       String
@@ -142,7 +163,7 @@ model Bookmark {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Note {
+model FlowLocalNote {
   id          String   @id @default(uuid())
   userId      String
   content     String
@@ -154,7 +175,7 @@ model Note {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-model Attachment {
+model FlowLocalAttachment {
   id          String   @id @default(uuid())
   userId      String
   filename    String
@@ -251,6 +272,33 @@ model JiraConnection {
   accessToken  String?
   refreshToken String?
   domain       String?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NotionConnection {
+  id           String   @id @default(uuid())
+  userId       String
+  accessToken  String?
+  workspaceId  String?
+  botId        String?
+  workspaceName String?
+  status       String   @default("active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model GoogleTasksConnection {
+  id           String   @id @default(uuid())
+  userId       String
+  accessToken  String?
+  refreshToken String?
+  accountId    String?
   status       String   @default("active")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

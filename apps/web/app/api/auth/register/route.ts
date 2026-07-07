@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { AuthService } from "../../../../../server/auth.service";
-import { registerSchema } from "../../../../../domain/schemas";
+import { AuthService } from "../../../../server/auth.service";
+import { registerSchema } from "../../../../domain/schemas";
 import { z } from "zod";
 
 export async function POST(req: Request) {
@@ -13,7 +13,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: true, message: "Registration successful. Please check your email to verify your account." });
   } catch (error: any) {
     if (error instanceof z.ZodError) {
-      return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: error.errors[0].message } }, { status: 400 });
+      return NextResponse.json({ error: { code: "VALIDATION_ERROR", message: (error as any).errors[0].message } }, { status: 400 });
     }
     return NextResponse.json({ error: { code: "INTERNAL_ERROR", message: "An unexpected error occurred" } }, { status: 500 });
   }
