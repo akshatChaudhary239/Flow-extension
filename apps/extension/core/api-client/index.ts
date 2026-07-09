@@ -1,5 +1,5 @@
 export class ApiClient {
-  private baseUrl = process.env.PLASMO_PUBLIC_API_URL || "http://localhost:3000/api";
+  private baseUrl = process.env.PLASMO_PUBLIC_API_URL || "https://flow-extension.onrender.com/api";
 
   async post(path: string, body: any) {
     console.log(`[ApiClient] Preparing to send message to background script for ${path}`, body);

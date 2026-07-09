@@ -27,6 +27,15 @@
     "host_permissions": [
       "http://localhost/*",
       "http://127.0.0.1/*"
-    ]
+    ],
+    "commands": {
+      "toggle_flow_palette": {
+        "suggested_key": {
+          "default": "Alt+K",
+          "mac": "Command+Shift+K"
+        },
+        "description": "Summon Flow Command Palette"
+      }
+    }
   }
 }

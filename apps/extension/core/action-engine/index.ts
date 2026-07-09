@@ -21,6 +21,12 @@ export class ActionEngine {
     } catch (error) {
       console.error(`[ActionEngine] Action ${actionId} failed:`, error);
       throw error;
+    } finally {
+      // Golden Rule: Zero-Knowledge Philosophy
+      // We must explicitly discard the temporary context from memory after the action completes,
+      // regardless of whether it succeeded or failed.
+      console.log("[ActionEngine] Discarding temporary context from memory.");
+      useContextStore.getState().setActiveContext(null);
     }
   }
 }
