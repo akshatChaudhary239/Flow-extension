@@ -28,8 +28,24 @@ export class ActionRouterService {
       }
     }
 
-    // Determine the preferred provider for this capability, default to flow_local
-    let providerName = preferences[`default_${capability}`] || "flow_local";
+    // Determine the preferred provider for this capability
+    let providerName = preferences[`default_${capability}`];
+
+    // If no explicit preference, try to auto-discover an active connection
+    if (!providerName) {
+      if (capability === ProviderCapability.CREATE_TASK || capability === ProviderCapability.CREATE_REMINDER) {
+        const hasGoogle = await prisma.googleTasksConnection.findFirst({ where: { userId, status: "active" } });
+        if (hasGoogle) providerName = "google_tasks";
+      }
+      
+      if (!providerName && (capability === ProviderCapability.CREATE_NOTE || capability === ProviderCapability.CREATE_BOOKMARK)) {
+        const hasNotion = await prisma.notionConnection.findFirst({ where: { userId, status: "active" } });
+        if (hasNotion) providerName = "notion";
+      }
+      
+      // Fallback to local
+      if (!providerName) providerName = "flow_local";
+    }
     let adapter = this.adapters.get(providerName);
 
     // 2. Capability Discovery - Verify if the chosen provider supports this action
